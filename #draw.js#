@@ -1,0 +1,170 @@
+var firstDraw = true;
+var display_type = 0; // deferred shading
+
+function drawScene() {
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+    if ( meshesToLoad > 0 || imagesToLoad > 0 ) {
+        console.log("scene not loaded. meshesToLoad: " + meshesToLoad + " texturesToLoad " + imagesToLoad);
+        firstDraw = true;
+        return;  
+    } else if ( firstDraw ){
+        console.log("loading scene");
+
+        initTextures( images );
+        initMeshBuffers( gl, meshes );
+
+        gbuffer = new Gbuffer();
+        gbuffer.initGbuffer();
+        gbuffer.initQuadBuffers();
+
+        firstDraw = false;
+    }
+
+    // setup the camera
+    var projectionMatrix = mat4.create();
+    var mvMatrix = mat4.create();
+    var camMatrix = mat4.create();
+
+    mat4.perspective(projectionMatrix, 45, gl.viewportWidth / gl.viewportHeight, 0.01, 100000.0);
+    var eye = [0.0, 0.0, -5.0];
+    var target = [0.0, 0.0, 0.0];
+    var up = [0, 1, 0];
+    mat4.lookAt(camMatrix, eye, target, up);
+    mat4.invert(mvMatrix, camMatrix);
+
+    // object transformation matrix
+    mat4.rotateX(mvMatrix, mvMatrix, objXRotation);
+    mat4.rotateY(mvMatrix, mvMatrix, objYRotation);
+    mat4.translate(mvMatrix, mvMatrix, objTranslation);
+
+    // *************
+    // Geometry Pass
+    // *************
+    gl.enable(gl.DEPTH_TEST); // enable depth testing. We may want to disable this
+    gl.depthFunc(gl.LEQUAL); // obscure far things
+
+    gl.useProgram(geoShaderProgram);
+
+    // Re-bind framebuffer to draw to textures
+    gl.bindTexture(gl.TEXTURE_2D, null);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, gbuffer.framebuffer);
+    gl.clear(gl.DEPTH_BUFFER_BIT);
+    gl.enable(gl.DEPTH_TEST);
+
+    // send camera matrices to geoShaders
+    gl.uniformMatrix4fv(geoShaderProgram.pMatUniform, false, projectionMatrix);
+    gl.uniformMatrix4fv(geoShaderProgram.mvMatUniform, false, mvMatrix);
+
+    gl.clearColor(0.0, 0.0, 0.0, 1.0); // set clear color
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+    // pass values up to geoShaders by binding 
+    for( var i = 0; i < meshes.length; i++ ) {
+        var mesh = meshes[i];
+        for( var j = 0; j < mesh.groups.length; j++ ) {
+            gl.bindBuffer(
+                    gl.ARRAY_BUFFER, mesh.groups[j].vertexBuffer);
+            gl.vertexAttribPointer(
+                    //mesh.program.vertexPositionAttribute,TODO 
+                    geoShaderProgram.vertexPositionAttribute,
+                    mesh.groups[j].vertexBuffer.itemSize, 
+                    gl.FLOAT, false, 0, 0);
+            //gl.enableVertexAttribArray(geoShaderProgram.vertexPositionAttribute);
+
+            gl.bindBuffer(
+                    gl.ARRAY_BUFFER, mesh.groups[j].normalBuffer);
+            gl.vertexAttribPointer(
+                    //mesh.program.vertexPositionAttribute,TODO 
+                    geoShaderProgram.vertexNormalAttribute,
+                    mesh.groups[j].normalBuffer.itemSize, 
+                    gl.FLOAT, false, 0, 0);
+            //gl.enableVertexAttribArray(geoShaderProgram.vertexNormalAttribute);
+
+            gl.bindBuffer(
+                    gl.ARRAY_BUFFER, mesh.groups[j].textureBuffer);
+            gl.vertexAttribPointer(
+                    //mesh.program.vertexPositionAttribute,TODO 
+                    geoShaderProgram.textureCoordAttribute,
+                    mesh.groups[j].textureBuffer.itemSize, 
+                    gl.FLOAT, false, 0, 0);
+            //gl.enableVertexAttribArray(geoShaderProgram.textureCoordAttribute);
+
+            // enable texture
+            gl.activeTexture(gl.TEXTURE0);
+            gl.bindTexture(
+                    gl.TEXTURE_2D, imageTextures[mesh.groups[j].materialPath]);
+
+            gl.uniform1i(geoShaderProgram.samplerUniform, 0);
+
+            // draw indices to screen
+            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, mesh.groups[j].indexBuffer);
+            // can use drawArrays if not using index arrays or not sharing vertices between primitives
+            gl.drawElements(
+                gl.TRIANGLES, 
+                mesh.groups[j].indexBuffer.numItems, 
+                gl.UNSIGNED_SHORT, 0);
+        }
+    }
+
+    // Un-bind framebuffers to draw to screen
+    gl.bindTexture(gl.TEXTURE_2D, null);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.disable(gl.DEPTH_TEST);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+
+    // *************
+    // Lighting Pass
+    // *************
+    //gl.enable(gl.BLEND);
+    //gl.blendFunc(gl.ONE, gl.ONE);
+    //gl.clear(gl.COLOR_BUFFER_BIT);
+
+    gl.useProgram(lightShaderProgram);
+
+    // Setup screen quad
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, gbuffer.normalTexture);
+    gl.uniform1i(lightShaderProgram.normalTexUniform, 0);
+
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, gbuffer.positionTexture);
+    gl.uniform1i(lightShaderProgram.positionTexUniform, 1);
+
+    gl.activeTexture(gl.TEXTURE2);
+    gl.bindTexture(gl.TEXTURE_2D, gbuffer.colorTexture);
+    gl.uniform1i(lightShaderProgram.colorTexUniform, 2);
+
+    gl.activeTexture(gl.TEXTURE3);
+    gl.bindTexture(gl.TEXTURE_2D, gbuffer.depthTexture);
+    gl.uniform1i(lightShaderProgram.depthTexUniform, 3);
+
+    //gl.disable(SCISSOR_TEST); // TODO
+    
+    // Draw screen quad
+    gl.bindBuffer(gl.ARRAY_BUFFER, gbuffer.vboVertexBuffer);
+    gl.vertexAttribPointer(lightShaderProgram.vertexPositionAttribute,
+            gbuffer.vboVertexBuffer.itemSize, 
+            gl.FLOAT, false, 0, 0);
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, gbuffer.vboTextureBuffer);
+    gl.vertexAttribPointer(lightShaderProgram.textureCoordAttribute,
+            gbuffer.vboTextureBuffer.itemSize, 
+            gl.FLOAT, false, 0, 0);
+
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, gbuffer.vboIndexBuffer);
+    gl.drawElements(gl.TRIANGLES, 6, gl.UNSIGNED_SHORT, 0);
+
+    //gl.disable(gl.BLEND);
+}
+
+function animateMyScene() {
+    requestAnimationFrame(animateMyScene);  // js convention for animation
+    drawScene();
+}
+
+//
+// Matrix utility functions
+//
+function setMatrixUniforms(projectionMatrix, modelViewMatrix) {
+}

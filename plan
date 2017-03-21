@@ -1,0 +1,55 @@
+Interactive Focus and Context Visualization 
+    - WebGL
+    
+---------------------
+Steps
+---------------------
+- Find a 3D model with interior info
+- Load 3D model
+- Ray casting
+- Split model into layers
+- Decide what filters are applied to each layer
+- Intersection point with 3D model not as primitives
+
+---------------------
+Features
+---------------------
+- UI
+    - sliders to change filter intensities (alpha/opacity)
+    - layer reordering to change focus (Photoshop inspired)  
+- Looking glass filter
+
+Possible filters:
+    - edge drawing
+    - transparency
+    - color 
+
+---------------------
+Extra
+---------------------
+- Map to augmented reality
+- Blending of texture filters and filters in general
+- Allow user to determine camera position
+
+---------------------
+Notes
+---------------------
+    - focus object always fully drawn
+    - threshold difference in normal angle as a possible way to reduce visual clutter with silhouette edges
+    - G Buffer:
+        - RGB,A
+        - depth
+        - object IDs
+        - texture info
+
+---------------------
+Helpful websites
+---------------------
+- Render to Texture: 
+  - http://learningwebgl.com/blog/?p=1786
+  - http://webglfundamentals.org/webgl/lessons/webgl-image-processing-continued.html
+- Deferred shading: https://hacks.mozilla.org/2014/01/webgl-deferred-shading/
+- Convolution matrices:
+  - https://docs.gimp.org/en/plug-in-convmatrix.html
+- Draggable Bootstrap panels:
+  - http://www.bootply.com/dUQiGMggWO

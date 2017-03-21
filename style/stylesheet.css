@@ -1,0 +1,12 @@
+#ui .panel-heading {
+    cursor: move;
+}
+
+input {
+    width: 100%;
+    text-align: right;
+}
+
+table tbody th {
+    text-align: center;
+}

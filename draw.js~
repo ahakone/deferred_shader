@@ -1,0 +1,51 @@
+function drawScene() {
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+    if (meshLoaded == false || textureLoaded == false) {
+        console.log("scene not loaded");
+        return;  
+    }
+
+    // pass values up to shaders by binding 
+    gl.bindBuffer(gl.ARRAY_BUFFER, mesh.vertexBuffer);
+    gl.vertexAttribPointer(shaderProgram.vertexPositionAttribute, 
+            mesh.vertexBuffer.itemSize, gl.FLOAT, false, 0, 0);
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, mesh.normalBuffer);
+    gl.vertexAttribPointer(shaderProgram.vertexNormalAttribute, 
+            mesh.normalBuffer.itemSize, gl.FLOAT, false, 0, 0);
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, mesh.textureBuffer);
+    gl.vertexAttribPointer(shaderProgram.textureCoordAttribute, 
+            mesh.textureBuffer.itemSize, gl.FLOAT, false, 0, 0);
+
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+    gl.uniform1i(shaderProgram.samplerUniform, 0);
+
+    // setup the camera
+    var projectionMatrix = mat4.create();
+    var mvMatrix = mat4.create();
+    var camMatrix = mat4.create();
+
+    mat4.perspective(projectionMatrix, 45, gl.viewportWidth / gl.viewportHeight, 0.01, 100000.0);
+    var eye = [0, 0, 0];
+    var target = [0, 0, -1.0];
+    var up = [0, 1, 0];
+    mat4.lookAt(camMatrix, eye, target, up);
+    mat4.invert(mvMatrix, camMatrix);
+
+    // object transformation matrix
+    mat4.rotateX(mvMatrix, mvMatrix, objXRotation);
+    mat4.rotateY(mvMatrix, mvMatrix, objYRotation);
+    mat4.translate(mvMatrix, mvMatrix, objTranslation);
+
+    // send camera matrices to shaders
+    setMatrixUniforms(projectionMatrix, mvMatrix);
+
+    // draw indices to screen
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, mesh.indexBuffer);
+    // can use drawArrays if not using index arrays or not sharing vertices between primitives
+    gl.drawElements(
+            gl.TRIANGLES, mesh.indexBuffer.numItems, gl.UNSIGNED_SHORT, 0);
+}

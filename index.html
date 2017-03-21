@@ -1,0 +1,513 @@
+<!doctype html>
+<html> 
+  <head>
+    <title>Final Project</title>
+    <meta charset="utf-8"/>
+    <!-- JQuery -->
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/2.2.2/jquery.min.js"></script>
+
+    <script type="text/javascript" src="js/gl-matrix-min.js"></script>
+    <script type="text/javascript" src="js/sylvester.js"></script>
+    <script type="text/javascript" src="js/glUtils.js"></script>
+    <script type="text/javascript" src="js/three.min.js"></script>
+    <script type="text/javascript" src="js/objLoader.js"></script>
+
+    <script type="text/javascript" src="gbuffers.js"></script>
+    <script type="text/javascript" src="draw.js"></script>
+    <script type="text/javascript" src="init.js"></script>
+    <script type="text/javascript" src="ui.js"></script>    
+    
+    <!-- Bootstrap -->
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.6/css/bootstrap.min.css" integrity="sha384-1q8mTJOASx8j1Au+a5WDVnPi2lkFfwwEAa8hDDdjZlpLegxhjVME1fgjWPGmkzs7" crossorigin="anonymous">
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.6/css/bootstrap-theme.min.css" integrity="sha384-fLW2N01lMqjakBkx3l/M9EahuwpSfeNvV63J5ezn3uZzapT0u7EYsXMjQV+0En5r" crossorigin="anonymous">
+    <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.6/js/bootstrap.min.js" integrity="sha384-0mSbJDEHialfmuBBQP6A4Qrprq5OVfW37PRR3j5ELqxss1yVqOtnepnHVP9aJ7xS" crossorigin="anonymous"></script>
+    
+    <link rel="stylesheet" href="style/stylesheet.css">
+
+    <!-- ********************* -->
+    <!-- Geometry Pass Shaders -->
+    <!-- ********************* -->
+    <script id="geometry-pass-vs" type="x-shader/x-vertex">
+        precision highp float;
+        attribute vec3 aVertexPosition;
+        attribute vec3 aVertexNormal;
+        attribute vec2 aTextureCoord;
+
+        varying vec4 vPosition;
+        varying vec3 vNormal;
+        varying vec2 vTextureCoord;
+        varying float vDepth;
+
+        uniform mat4 uMVMatrix;
+        uniform mat4 uPMatrix;
+
+        void main(void) {
+            // TODO: transform normals into camera space with inverse transpose matrix
+            vPosition = uMVMatrix * vec4(aVertexPosition, 1.0);
+
+            vNormal = aVertexNormal; // do we need to transform the normals too?
+            vTextureCoord = aTextureCoord; 
+            gl_Position = uPMatrix * vPosition;
+//            vDepth = float(gl_Position.z) / float(gl_Position.w); // homogenize by gl_Position.w?            
+            vDepth = float(aVertexPosition.z);// / float(aVertexPosition.w); // homogenize by gl_Position.w?
+        }
+    </script>
+
+    <script id="geometry-pass-fs" type="x-shader/x-fragment">
+        #extension GL_EXT_draw_buffers : require
+        precision highp float;  
+
+        // in from vertex shader
+        varying vec4 vPosition;
+        varying vec3 vNormal;
+        varying vec2 vTextureCoord;
+        varying float vDepth;
+
+        uniform sampler2D uSampler;
+        uniform float uAlphaColor;
+
+        void main(void) {
+            // Saving to textures: (0) normals, (1) position, and (2) color (3) depth
+            gl_FragData[0] = vec4(normalize(vNormal.xyz), 1.0);
+            gl_FragData[1] = vPosition;
+            gl_FragData[2] = vec4(texture2D(uSampler, vTextureCoord).xyz, uAlphaColor);
+            gl_FragData[3] = vec4(vec3(vDepth), 1.0);
+        }
+    </script>
+
+
+    <!-- ********************* -->
+    <!-- Lighting Pass Shaders -->
+    <!-- ********************* -->
+    <script id="lighting-pass-vs" type="x-shader/x-vertex">
+        precision highp float;  
+
+        attribute vec3 aVertexPosition;
+        attribute vec2 aTextureCoord;
+
+        varying vec2 vTextureCoord;
+
+        void main(void) {
+            vTextureCoord = aTextureCoord; // TODO: maybe modify like in demo
+            gl_Position = vec4(aVertexPosition, 1.0);
+        }
+    </script>
+
+    <script id="lighting-pass-fs" type="x-shader/x-fragment">
+        precision mediump float;  
+
+        // load in texture coords from vertex shader
+        varying vec2 vTextureCoord;
+
+        // load in textures created in geometry pass
+        uniform sampler2D uPositionTexGirl;
+        uniform sampler2D uNormalTexGirl;
+        uniform sampler2D uColorTexGirl;
+        uniform sampler2D uDepthTexGirl;
+        uniform sampler2D uPositionTexHouse;
+        uniform sampler2D uNormalTexHouse;
+        uniform sampler2D uColorTexHouse;
+        uniform sampler2D uDepthTexHouse;
+
+        uniform int display_mode;
+
+        uniform int render_girl;
+        uniform int render_house;
+        uniform float alpha_girl;
+        uniform float alpha_house;
+
+        uniform vec3 lightPos1;
+        uniform vec3 lightPos2;
+        uniform vec3 lightPos3;
+        uniform vec3 lightPos4;
+        uniform vec3 lightPos5;
+        uniform vec3 lightPos6;
+        uniform vec3 lightColor1;
+        uniform vec3 lightColor2;
+        uniform vec3 lightColor3;
+        uniform vec3 lightColor4;
+        uniform vec3 lightColor5;
+        uniform vec3 lightColor6;
+
+        void main(void) {
+            // Retrieve data from gbuffer
+            vec3 positionGirl = texture2D(uPositionTexGirl, vTextureCoord).xyz;
+            vec3 normalGirl = normalize(texture2D(uNormalTexGirl, vTextureCoord).xyz);
+            vec3 colorGirl = texture2D(uColorTexGirl, vTextureCoord).xyz;
+            vec3 depthGirl = texture2D(uDepthTexGirl, vTextureCoord).xyz;
+
+            vec3 positionHouse = texture2D(uPositionTexHouse, vTextureCoord).xyz;
+            vec3 normalHouse = normalize(texture2D(uNormalTexHouse, vTextureCoord).xyz);
+            vec3 colorHouse = texture2D(uColorTexHouse, vTextureCoord).xyz;
+            vec3 depthHouse = texture2D(uDepthTexHouse, vTextureCoord).xyz;
+
+            vec3 color = vec3(0.0, 0.0, 0.0);
+            vec3 position = vec3(0.0, 0.0, 0.0);
+            vec3 normal = vec3(0.0, 0.0, 0.0);
+            vec3 depth = vec3(0.0, 0.0, 0.0);
+            if (render_girl == 1 && render_house == 0) {
+                // girl only
+                color = colorGirl * alpha_girl;
+                position = positionGirl * alpha_girl;
+                normal = normalGirl * alpha_girl;
+                depth = depthGirl * alpha_girl;
+            } else if ( render_girl == 0 && render_house == 1 ) {
+                // house only
+                color = colorHouse * alpha_house;
+                position = positionHouse * alpha_house;
+                normal = normalHouse * alpha_house;
+                depth = depthHouse * alpha_house;
+
+            } else if ( render_girl == 1 && render_house == 1 ) {
+                // blend
+                bvec3 ne = notEqual(depthGirl, vec3(1.0, 1.0, 1.0) );
+                if (ne.x == true && ne.y == true && ne.z == true) {
+                    color = colorGirl * alpha_girl;
+                    normal = normalGirl;
+                    position = positionGirl;
+                    depth = depthGirl;
+                } else {
+                    color = colorHouse * alpha_house;
+                    normal = normalHouse;
+                    position = positionHouse;
+                    depth = depthHouse;
+                }
+                //color = (colorGirl * alpha_girl) + (colorHouse * alpha_house);
+                //normal = (normalGirl * alpha_girl) + (normalHouse * alpha_house);
+                //depth = (depthGirl * alpha_girl) + (depthHouse * alpha_house);
+                //position = (positionGirl * alpha_girl) + (positionHouse * alpha_house);
+            }
+
+            // scale depth
+            bvec3 ne = notEqual(depth, vec3(1.0, 1.0, 1.0) );
+            if (ne.x == true && ne.y == true && ne.z == true) {
+                depth = depth * 0.1;
+            }
+
+            float ka = 0.5;
+            float kd = 0.5;
+
+            // set final fragment color
+            if (display_mode == 0) {
+                // Calculate lighting
+                vec3 lighting = color * ka; // initialize to base ambient
+
+                // red light in back
+                vec3 diffuse = kd * color * lightColor1;
+                float NL = dot(normal, normalize(lightPos1 - position));
+                if ( NL < 0.0 ) {
+                    NL = 0.0;
+                }
+                lighting += diffuse * NL;
+/*
+
+                // green light in front
+                diffuse = kd * color * lightColor2;
+                NL = dot(normal, normalize(lightPos2 - position));
+                if ( NL < 0.0 ) {
+                    NL = 0.0;
+                }
+                lighting += diffuse * NL;
+
+                diffuse = kd * color * lightColor3;
+                NL = dot(normal, normalize(lightPos3 - position));
+                if ( NL < 0.0 ) {
+                    NL = 0.0;
+                }
+                lighting += diffuse * NL;
+
+                diffuse = kd * color * lightColor4;
+                NL = dot(normal, normalize(lightPos4 - position));
+                if ( NL < 0.0 ) {
+                    NL = 0.0;
+                }
+                lighting += diffuse * NL;
+
+*/
+                diffuse = kd * color * lightColor5;
+                NL = dot(normal, normalize(lightPos5 - position));
+                if ( NL < 0.0 ) {
+                    NL = 0.0;
+                }
+                lighting += diffuse * NL;
+
+                // light 6
+                diffuse = kd * color * lightColor6;
+                NL = dot(normal, normalize(lightPos6 - position));
+                if ( NL < 0.0 ) {
+                    NL = 0.0;
+                }
+                lighting += diffuse * NL;
+
+                gl_FragColor = vec4(lighting, 1.0);
+            }
+            else if (display_mode == 1) {
+                gl_FragColor = vec4(normal.xyz, 1.0);
+            }
+            else if (display_mode == 2) {
+               gl_FragColor = vec4(position.xyz, 1.0);
+            }
+            else if (display_mode == 3) {
+               gl_FragColor = vec4(color.xyz, 1.0);
+            }
+            else if (display_mode == 4) {
+               gl_FragColor = vec4(depth.xyz, 1.0);
+            }
+            //gl_FragColor = vec4(vec3(1.0, 1.0, 0.0), 1.0);
+        }
+    </script>
+
+    <!-- ********************* -->
+    <!--     Forward Shaders    -->
+    <!-- ********************* -->
+    <script id="shader-fs" type="x-shader/x-fragment">
+        precision highp float;  
+
+        varying vec4 vPosition;
+        varying vec3 vNormal;
+        varying vec2 vTextureCoord;
+
+        uniform sampler2D uSampler;
+//uniform float u_filters[]; or u_kernel
+
+        void main(void) {
+            // get light contribution
+            vec4 lightVec = normalize(vec4(0, 0, 2.0, 1.0));
+            float dotted = dot(vNormal, lightVec.rgb);
+
+            // get texture color
+            vec4 texColor = texture2D(uSampler, vTextureCoord);	
+            vec4 otherColor = vec4(1.0, 1.0, 0.0, 1.0);
+
+            // set final fragment color
+            gl_FragColor = vec4(dotted * texColor.xyz, texColor.a);
+            //gl_FragColor = vec4(dotted * otherColor.xyz, otherColor.a);
+            // gl_FragColor = vec4((colorSum / kernelWeight).rgb, 1);
+        }
+    </script>
+
+    <!-- Vertex shader program -->
+    <script id="shader-vs" type="x-shader/x-vertex">
+        attribute vec3 aVertexPosition;
+        attribute vec3 aVertexNormal;
+        attribute vec2 aTextureCoord;
+
+        varying vec4 vPosition;
+        varying vec3 vNormal;
+        varying vec2 vTextureCoord;
+
+        uniform mat4 uMVMatrix;
+        uniform mat4 uPMatrix;
+
+        void main(void) {
+            vPosition = uMVMatrix * vec4(aVertexPosition, 1.0);
+            vNormal = aVertexNormal; // do we need to transform the normals too?
+            // normalMatrix = transpose(inverse(modelView))
+            vTextureCoord = aTextureCoord; 
+            gl_Position = uPMatrix * vPosition;
+        }
+    </script>
+  </head>
+
+  <body onload="start()">
+    <h1 style="text-align: center; margin: 3% 0 0 0">
+      Deferred shading using Gbuffers
+    </h1>
+    <h4 style="text-align: center">By: Megan Van Welie & Anzu Hakone</h4>
+    
+    <div class="container" style="margin: 4% 4% 0 4%">
+      <div class="row">
+        <div class="col-md-6">
+          <canvas id="glCanvas" width="512" height="512">
+            Your browser doesn't seem to support the HTML5 <code>&lt;canvas&gt;</code> element. 
+          </canvas>
+        </div>
+        <div class="col-md-6">
+          <div class="panel panel-success">
+            <!-- <div class="panel-heading">Controller</div> -->
+            <div class="panel-body">
+              <div id="status-body">
+                You are using <br>
+                <span id="currMode" style="font-size: 40px">Deferred shading</span> 
+                <br>
+                q = Deferred shading; w = Normals; e = Position; r = Color; y = Depth
+              </div>
+            </div>
+            <div class="panel-footer">
+              <table class="table">
+                <tr>
+                  <th>Light</th>
+                  <th>x</th>
+                  <th>y</th>
+                  <th>z</th>                  
+                  <th>R</th>
+                  <th>G</th>
+                  <th>B</th>
+                </tr>
+                <tr>
+                  <td> 1 </td>
+                  <td>
+                    <input type="text" id="light1x" onchange="changeLightPos(this)" value="5"/>
+                  </td>
+                  <td>
+                    <input type="text" id="light1y" onchange="changeLightPos(this)" value="0"/>
+                  </td>
+                  <td>
+                    <input type="text" id="light1z" onchange="changeLightPos(this)" value="0"/>
+                  </td>
+                  <td>
+                    <input type="text" id="light1r" onchange="changeLightRGB(this)" value="1"/>
+                  </td>
+                  <td>
+                    <input type="text" id="light1g" onchange="changeLightRGB(this)" value="0"/>
+                  </td>
+                  <td>
+                    <input type="text" id="light1b" onchange="changeLightRGB(this)" value="0"/>
+                  </td>
+                </tr>
+                <tr>
+                  <td> 2 </td>
+                  <td>
+                    <input type="text" id="light2x" onchange="changeLightPos(this)" value="-5"/>
+                  </td>
+                  <td>
+                    <input type="text" id="light2y" onchange="changeLightPos(this)" value="0"/>
+                  </td>
+                  <td>
+                    <input type="text" id="light2z" onchange="changeLightPos(this)" value="0"/>
+                  </td>
+                  <td>
+                    <input type="text" id="light2r" onchange="changeLightRGB(this)" value="0"/>
+                  </td>
+                  <td>
+                    <input type="text" id="light2g" onchange="changeLightRGB(this)" value="1"/>
+                  </td>
+                  <td>
+                    <input type="text" id="light2b" onchange="changeLightRGB(this)" value="0"/>
+                  </td>
+                </tr>
+                <tr>
+                  <td> 3 </td>
+                  <td>
+                    <input type="text" id="light3x" onchange="changeLightPos(this)" value="1"/>
+                  </td>
+                  <td>
+                    <input type="text" id="light3y" onchange="changeLightPos(this)" value="0"/>
+                  </td>
+                  <td>
+                    <input type="text" id="light3z" onchange="changeLightPos(this)" value="5"/>
+                  </td>
+                  <td>
+                    <input type="text" id="light3r" onchange="changeLightRGB(this)" value="0"/>
+                  </td>
+                  <td>
+                    <input type="text" id="light3g" onchange="changeLightRGB(this)" value="0"/>
+                  </td>
+                  <td>
+                    <input type="text" id="light3b" onchange="changeLightRGB(this)" value="1"/>
+                  </td>
+                </tr>
+                <tr>
+                  <td> 4 </td>
+                  <td>
+                    <input type="text" id="light4x" onchange="changeLightPos(this)" value="0"/>
+                  </td>
+                  <td>
+                    <input type="text" id="light4y" onchange="changeLightPos(this)" value="0"/>
+                  </td>
+                  <td>
+                    <input type="text" id="light4z" onchange="changeLightPos(this)" value="-5"/>
+                  </td>
+                  <td>
+                    <input type="text" id="light4r" onchange="changeLightRGB(this)" value="1"/>
+                  </td>
+                  <td>
+                    <input type="text" id="light4g" onchange="changeLightRGB(this)" value="1"/>
+                  </td>
+                  <td>
+                    <input type="text" id="light4b" onchange="changeLightRGB(this)" value="0"/>
+                  </td>
+                </tr>
+                <!--
+                <tr>
+                  <td> 5 </td>
+                  <td>
+                    <input type="text" id="light5x" onchange="changeLightPos(this)" value="0"/>
+                  </td>
+                  <td>
+                    <input type="text" id="light5y" onchange="changeLightPos(this)" value="5"/>
+                  </td>
+                  <td>
+                    <input type="text" id="light5z" onchange="changeLightPos(this)" value="0"/>
+                  </td>
+                  <td>
+                    <input type="text" id="light5r" onchange="changeLightRGB(this)" value="1"/>
+                  </td>
+                  <td>
+                    <input type="text" id="light5g" onchange="changeLightRGB(this)" value="1"/>
+                  </td>
+                  <td>
+                    <input type="text" id="light5b" onchange="changeLightRGB(this)" value="1"/>
+                  </td>
+                </tr>
+                <tr>
+                  <td> 6 </td>
+                  <td>
+                    <input type="text" id="light6x" onchange="changeLightPos(this)" value="0"/>
+                  </td>
+                  <td>
+                    <input type="text" id="light6y" onchange="changeLightPos(this)" value="-5"/>
+                  </td>
+                  <td>
+                    <input type="text" id="light6z" onchange="changeLightPos(this)" value="0"/>
+                  </td>
+                  <td>
+                    <input type="text" id="light6r" onchange="changeLightRGB(this)" value="0"/>
+                  </td>
+                  <td>
+                    <input type="text" id="light6g" onchange="changeLightRGB(this)" value="1"/>
+                  </td>
+                  <td>
+                    <input type="text" id="light6b" onchange="changeLightRGB(this)" value="0"/>
+                  </td>
+                </tr>
+-->
+              </table>
+              <table class="table">
+                <tr>
+                  <th>Object</th>
+                  <th>Alpha</th>
+                </tr>
+                <tr>
+                  <td>
+                    <div class="checkbox">
+                      <input type="checkbox" checked="yes" onchange="if (this.checked) render_house = 1; else render_house = 0;" id="houseCheck"/>
+                    </div>
+                    House
+                  </td>
+                  <td>
+                    <input type="range" id="houseAlpha" min="0" max="1" step=".01" value=".5" onchange="alpha_house = this.value; $('#houseAlphaO').html(this.value)" style="display: inline; width: 90%">
+                    <span id="houseAlphaO" style="float: right;">.5</span>
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <div class="checkbox">
+                      <input type="checkbox" checked="yes" onchange="if (this.checked) render_girl = 1; else render_girl = 0;" id="girlCheck"/>
+                    </div>
+                    Girl
+                  </td>
+                  <td>
+                    <input type="range" id="girlAlpha" min="0" max="1" step=".01" value="1" onchange="alpha_girl = this.value; $('#girlAlphaO').html(this.value)" style="display:inline; width: 90%">
+                    <span id="girlAlphaO" style="float:right">1</span>
+                  </td>
+                </tr>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>
+
